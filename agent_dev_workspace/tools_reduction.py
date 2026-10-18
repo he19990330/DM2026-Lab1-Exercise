@@ -1,5 +1,6 @@
 from typing import Literal, Optional, List, Dict, Any
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.decomposition import PCA
@@ -141,7 +142,52 @@ def make_tools(session):
 
     @tool
     def binarize_labels_tool() -> Dict[str, Any]:
-        """Binarizes/one-hot encodes category labels."""
-        return {"status": "not_implemented"}
+        """One-hot encodes category labels into a binary matrix.
+
+        Reads session.labels and session.categories to construct a binary indicator DataFrame
+        with one integer column per category (ordered by session.categories).
+
+        Returns:
+            Dict containing result_id, classes, and shape (n_samples, n_classes).
+        """
+        if session.labels is None or len(session.labels) == 0:
+            return {
+                "status": "error",
+                "message": "No labels found in session.",
+            }
+
+        categories = session.categories
+        if not categories:
+            categories = list(np.unique(session.labels))
+
+        data = {}
+        for cat in categories:
+            data[cat] = (session.labels == cat).astype(int)
+
+        full_report = pd.DataFrame(data)
+
+        res_id = session.next_result_id("binarize_labels")
+
+        str_categories = [str(c) for c in categories]
+        if len(str_categories) > 20:
+            classes_summary = str_categories[:20] + [f"... ({len(str_categories) - 20} more)"]
+        else:
+            classes_summary = str_categories
+
+        summary = {
+            "status": "success",
+            "result_id": res_id,
+            "classes": classes_summary,
+            "shape": list(full_report.shape),
+        }
+
+        session.store_result(
+            tool_name="binarize_labels_tool",
+            args={},
+            summary=summary,
+            full_report=full_report,
+        )
+
+        return summary
 
     return [reduce_dimensions_tool, binarize_labels_tool]

@@ -1,6 +1,7 @@
 import json
 import matplotlib.figure
 import numpy as np
+import pandas as pd
 import pytest
 
 from agent_pipeline.session_state import SessionState
@@ -52,7 +53,7 @@ def _verify_plot_and_store(session, res_id):
 
 @pytest.fixture(autouse=True)
 def prevent_savefig_and_show(monkeypatch):
-    """Enforce that no tool calls savefig() or show() during test execution."""
+    """Enforce that no tool calls savefig() or show() directly during test execution."""
     def _forbidden_call(*args, **kwargs):
         raise AssertionError(
             "Tool called savefig() or show() directly! Tools must set session.pending_figure instead."
@@ -251,3 +252,87 @@ def test_reduce_dimensions_error_handling():
     # 5. n_neighbors >= n_samples
     res = reduce_tool.invoke({"method": "umap", "n_neighbors": 8})
     assert res.get("status") == "error"
+
+
+def test_binarize_labels_tool_sample_fixture():
+    session = _setup_fixture_dtm()
+    tools = make_reduction_tools(session)
+    binarize_tool = next(t for t in tools if t.name == "binarize_labels_tool")
+
+    result = binarize_tool.invoke({})
+
+    assert "result_id" in result
+    assert result["classes"] == ["catA", "catB"]
+    assert result["shape"] == [8, 2]
+    assert "matrix" not in result
+    assert json.dumps(result) is not None
+
+    res_id = result["result_id"]
+    stored_result = session.results_store[res_id]
+    full_report = stored_result["full_report"]
+
+    assert isinstance(full_report, pd.DataFrame)
+    assert list(full_report.columns) == ["catA", "catB"]
+    assert full_report.shape == (8, 2)
+    assert np.issubdtype(full_report.values.dtype, np.integer)
+
+    # sample_fixture.csv original order:
+    # rows 0-2: catA [1, 0]
+    # rows 3-6: catB [0, 1]
+    # row 7: catA [1, 0]
+    expected_matrix = np.array(
+        [
+            [1, 0],
+            [1, 0],
+            [1, 0],
+            [0, 1],
+            [0, 1],
+            [0, 1],
+            [0, 1],
+            [1, 0],
+        ]
+    )
+    np.testing.assert_array_equal(full_report.values, expected_matrix)
+    assert (full_report.sum(axis=1) == 1).all()
+
+
+def test_binarize_labels_tool_no_labels_error():
+    session = SessionState()
+    tools = make_reduction_tools(session)
+    binarize_tool = next(t for t in tools if t.name == "binarize_labels_tool")
+
+    result = binarize_tool.invoke({})
+    assert result.get("status") == "error"
+
+
+def test_binarize_labels_tool_three_classes_synthetic():
+    session = SessionState()
+    synthetic_labels = np.array(["catA", "catC", "catB", "catA", "catC"])
+    session.set_labels(synthetic_labels)
+
+    tools = make_reduction_tools(session)
+    binarize_tool = next(t for t in tools if t.name == "binarize_labels_tool")
+
+    result = binarize_tool.invoke({})
+
+    assert result["classes"] == ["catA", "catB", "catC"]
+    assert result["shape"] == [5, 3]
+    assert json.dumps(result) is not None
+
+    res_id = result["result_id"]
+    full_report = session.results_store[res_id]["full_report"]
+
+    assert list(full_report.columns) == ["catA", "catB", "catC"]
+    assert np.issubdtype(full_report.values.dtype, np.integer)
+
+    expected_matrix = np.array(
+        [
+            [1, 0, 0],
+            [0, 0, 1],
+            [0, 1, 0],
+            [1, 0, 0],
+            [0, 0, 1],
+        ]
+    )
+    np.testing.assert_array_equal(full_report.values, expected_matrix)
+    assert (full_report.sum(axis=1) == 1).all()
