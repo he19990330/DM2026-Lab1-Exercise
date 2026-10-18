@@ -6,6 +6,8 @@ import pandas as pd
 from sklearn.feature_extraction.text import CountVectorizer, TfidfTransformer
 from langchain_core.tools import tool
 
+MAX_SUMMARY_PATTERNS = 20
+
 
 def make_tools(session):
     @tool
@@ -26,7 +28,7 @@ def make_tools(session):
             k: Number of top patterns to return for topk algorithm.
 
         Returns:
-            Dict containing result_id, status, category_name, filtering_method, algorithm, and discovered patterns.
+            Dict containing result_id, status, category_name, filtering_method, algorithm, total_patterns_found, and discovered patterns.
         """
         if session.dataframe is None:
             return {"status": "error", "message": "No dataset loaded in session."}
@@ -69,6 +71,7 @@ def make_tools(session):
                 "category_name": category_name,
                 "filtering_method": filtering_method,
                 "algorithm": algorithm,
+                "total_patterns_found": 0,
                 "patterns": [],
                 "note": "No non-empty text documents available for category."
             }
@@ -88,6 +91,7 @@ def make_tools(session):
                 "category_name": category_name,
                 "filtering_method": filtering_method,
                 "algorithm": algorithm,
+                "total_patterns_found": 0,
                 "patterns": [],
                 "note": "No terms survived initial tokenization and stopword removal."
             }
@@ -130,6 +134,7 @@ def make_tools(session):
                 "category_name": category_name,
                 "filtering_method": filtering_method,
                 "algorithm": algorithm,
+                "total_patterns_found": 0,
                 "patterns": [],
                 "note": "No terms survived filtering."
             }
@@ -190,6 +195,16 @@ def make_tools(session):
                         "support": int(row[sup_col])
                     })
 
+        # Sort patterns by support in descending order
+        patterns_list.sort(key=lambda x: x["support"], reverse=True)
+
+        total_found = len(patterns_list)
+        artifact_key = f"patterns_{category_name}_{filtering_method}_{algorithm}"
+        session.artifacts[artifact_key] = patterns_list
+
+        # Truncate summary pattern list using module-level constant
+        capped_patterns = patterns_list[:MAX_SUMMARY_PATTERNS]
+
         result_id = session.next_result_id("mine_patterns")
         summary = {
             "result_id": result_id,
@@ -197,11 +212,16 @@ def make_tools(session):
             "category_name": category_name,
             "filtering_method": filtering_method,
             "algorithm": algorithm,
-            "patterns": patterns_list
+            "total_patterns_found": total_found,
+            "patterns": capped_patterns
         }
 
-        artifact_key = f"patterns_{category_name}_{filtering_method}_{algorithm}"
-        session.artifacts[artifact_key] = patterns_list
+        if total_found > MAX_SUMMARY_PATTERNS:
+            summary["note"] = (
+                f"Showing top {MAX_SUMMARY_PATTERNS} of {total_found} mined patterns sorted by support. "
+                f"Full list saved in artifacts under key '{artifact_key}'."
+            )
+
         session.store_result("mine_patterns_tool", {
             "category_name": category_name,
             "filtering_method": filtering_method,

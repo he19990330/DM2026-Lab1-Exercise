@@ -24,8 +24,7 @@ def make_tools(session):
                 variance strictly less than this threshold will be removed.
 
         Returns:
-            Dict containing result_id, threshold, n_kept, n_removed, kept_terms,
-            and removed_terms.
+            Dict containing result_id, threshold, n_kept, and n_removed.
         """
         if session.feature_matrix is None or session.feature_names is None:
             return {
@@ -49,10 +48,11 @@ def make_tools(session):
         kept_mask = variances >= threshold
         removed_mask = ~kept_mask
 
-        kept_terms = feature_names[kept_mask].tolist()
-        removed_terms = feature_names[removed_mask].tolist()
+        n_kept = int(np.sum(kept_mask))
+        n_removed = int(np.sum(removed_mask))
 
         # Build full_report DataFrame sorted by variance descending
+        # First column is term name, second column is variance score (required for visualize_result_tool)
         df_report = pd.DataFrame({
             "term": feature_names,
             "variance": variances
@@ -63,10 +63,8 @@ def make_tools(session):
         summary = {
             "result_id": res_id,
             "threshold": threshold,
-            "n_kept": len(kept_terms),
-            "n_removed": len(removed_terms),
-            "kept_terms": kept_terms,
-            "removed_terms": removed_terms
+            "n_kept": n_kept,
+            "n_removed": n_removed
         }
 
         session.store_result(

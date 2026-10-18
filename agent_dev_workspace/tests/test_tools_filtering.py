@@ -53,32 +53,45 @@ def test_variance_filter_tool_known_answer_5():
     assert res["threshold"] == 0.15
     assert "n_kept" in res
     assert "n_removed" in res
-    assert "kept_terms" in res
-    assert "removed_terms" in res
 
-    # Check known answer #5 specifics:
-    # Retained (>= 0.15): alpha, beta, delta, gamma (4 terms)
-    # Removed (< 0.15): always (1 term, variance = 0.109375)
+    # Counts assertions
     assert res["n_kept"] == 4
     assert res["n_removed"] == 1
-    assert "always" in res["removed_terms"]
-    assert set(res["kept_terms"]) == {"alpha", "beta", "delta", "gamma"}
 
     # 7. Check stored full_report in session for schema requirements
-    # full_report must be a DataFrame where 1st col is term name, 2nd col is variance
     stored_entry = session.results_store[res["result_id"]]
     full_report = stored_entry["full_report"]
     assert isinstance(full_report, pd.DataFrame)
     assert full_report.shape[1] >= 2
 
-    # Check delta's variance in full_report matches known answer #5 (0.25)
+    # Access columns by position (col 0: term, col 1: variance)
     col_term = full_report.columns[0]
     col_var = full_report.columns[1]
-    
-    delta_row = full_report[full_report[col_term] == "delta"]
-    assert not delta_row.empty
-    delta_var = delta_row[col_var].values[0]
-    assert np.isclose(delta_var, 0.25, atol=1e-3)
+
+    # Verify full_report is sorted descending by variance
+    variances = full_report[col_var].tolist()
+    assert variances == sorted(variances, reverse=True)
+
+    # Derive kept and removed terms directly from full_report
+    kept_terms = set(full_report[full_report[col_var] >= 0.15][col_term])
+    removed_terms = set(full_report[full_report[col_var] < 0.15][col_term])
+
+    assert kept_terms == {"alpha", "beta", "delta", "gamma"}
+    assert removed_terms == {"always"}
+
+    # Verify exact 5-term variance comparison against Known Answer #5 (ddof=0)
+    variance_map = dict(zip(full_report[col_term], full_report[col_var]))
+    expected_variances = {
+        "alpha": 1.1875,
+        "gamma": 1.109375,
+        "delta": 0.25,
+        "beta": 0.234375,
+        "always": 0.109375,
+    }
+
+    for term, expected_var in expected_variances.items():
+        assert term in variance_map
+        assert np.isclose(variance_map[term], expected_var, atol=1e-4)
 
 
 def test_pearson_filter_tool():
